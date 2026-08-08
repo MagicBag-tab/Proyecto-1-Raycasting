@@ -43,27 +43,61 @@ fn draw_cell(framebuffer: &mut Framebuffer, xo: usize, yo: usize, cell: char) {
 }
 
 fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
-    for (row, line) in maze.iter().enumerate() {
-        for (col, &cell) in line.iter().enumerate() {
-            draw_cell(framebuffer, col * BLOCK_SIZE, row * BLOCK_SIZE, cell);
-        }
-    }
+    let num_rays = framebuffer.width;
+    let hw = framebuffer.width as f32 / 2.0;
+    let d_proj = hw / (FOV / 2.0).tan();
 
-    framebuffer.set_current_color(0xFFFF00);
-    
-    let px = player.pos.x as usize;
-    let py = player.pos.y as usize;
-
-    for x in px.saturating_sub(3)..=px + 3 {
-        for y in py.saturating_sub(3)..=py + 3 {
-            framebuffer.point(x, y);
-        }
-    }
-
-    for i in 0..NUM_RAYS {
-        let ray_fraction = i as f32 / (NUM_RAYS - 1) as f32; // de 0.0 a 1.0
+    for i in 0..num_rays {
+        let ray_fraction = i as f32 / num_rays as f32; // de 0.0 a 1.0
         let angle = player.a - FOV / 2.0 + FOV * ray_fraction;
-        cast_ray(framebuffer, maze, player, angle, BLOCK_SIZE);
+        let intersect = cast_ray(maze, player, angle, BLOCK_SIZE);
+        
+        let mut distance = intersect.distance * (angle - player.a).cos();
+        if distance < 1.0 {
+            distance = 1.0;
+        }
+        
+        if intersect.impact != ' ' {
+            let color = cell_color(intersect.impact);
+            
+            let wall_height = (BLOCK_SIZE as f32 * d_proj / distance) as usize;
+            
+            let start_y = if wall_height > framebuffer.height {
+                0
+            } else {
+                (framebuffer.height - wall_height) / 2
+            };
+            
+            let end_y = (start_y + wall_height).min(framebuffer.height);
+            
+            // Draw ceiling
+            framebuffer.set_current_color(0x333355);
+            for y in 0..start_y {
+                framebuffer.point(i, y);
+            }
+            
+            // Draw wall estaca
+            framebuffer.set_current_color(color);
+            for y in start_y..end_y {
+                framebuffer.point(i, y);
+            }
+            
+            // Draw floor
+            framebuffer.set_current_color(0x555555);
+            for y in end_y..framebuffer.height {
+                framebuffer.point(i, y);
+            }
+        } else {
+            // Draw just ceiling and floor if nothing hit
+            framebuffer.set_current_color(0x333355);
+            for y in 0..(framebuffer.height / 2) {
+                framebuffer.point(i, y);
+            }
+            framebuffer.set_current_color(0x555555);
+            for y in (framebuffer.height / 2)..framebuffer.height {
+                framebuffer.point(i, y);
+            }
+        }
     }
 }
 
