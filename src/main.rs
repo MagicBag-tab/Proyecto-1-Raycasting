@@ -12,7 +12,7 @@ use crate::framebuffer::Framebuffer;
 use crate::maze::{load_maze, Maze};
 use crate::player::{process_events, Player};
 
-const BLOCK_SIZE: usize = 100;
+const BLOCK_SIZE: usize = 15;
 
 const NUM_RAYS: usize = 5;
 
@@ -68,10 +68,10 @@ fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
 }
 
 fn main() {
-    let window_width = 1300;
-    let window_height = 900;
-    let framebuffer_width = 1300;
-    let framebuffer_height = 900;
+    let window_width = 735;
+    let window_height = 675;
+    let framebuffer_width = 735;
+    let framebuffer_height = 675;
     let frame_delay = Duration::from_millis(16);
 
     let (maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
