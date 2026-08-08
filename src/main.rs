@@ -102,10 +102,10 @@ fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
 }
 
 fn main() {
-    let window_width = 735;
-    let window_height = 675;
-    let framebuffer_width = 735;
-    let framebuffer_height = 675;
+    let window_width = 1024;
+    let window_height = 768;
+    let framebuffer_width = 1024;
+    let framebuffer_height = 768;
     let frame_delay = Duration::from_millis(16);
 
     let (maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
@@ -122,7 +122,7 @@ fn main() {
     .unwrap();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        process_events(&window, &mut player);
+        process_events(&window, &mut player, &maze, BLOCK_SIZE);
 
         let i = player.pos.x as usize / BLOCK_SIZE;
         let j = player.pos.y as usize / BLOCK_SIZE;
