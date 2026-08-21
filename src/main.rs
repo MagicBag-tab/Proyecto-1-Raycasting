@@ -14,8 +14,6 @@ use crate::player::{process_events, Player};
 
 const BLOCK_SIZE: usize = 15;
 
-const NUM_RAYS: usize = 5;
-
 const FOV: f32 = PI / 3.0;
 
 fn cell_color(cell: char) -> u32 {
@@ -43,16 +41,23 @@ fn draw_cell(framebuffer: &mut Framebuffer, xo: usize, yo: usize, cell: char) {
 }
 
 fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
+    // x estacadas (rayos) dependiendo de la cantidad de columnas de la pantalla
     let num_rays = framebuffer.width;
     let hw = framebuffer.width as f32 / 2.0;
     let d_proj = hw / (FOV / 2.0).tan();
 
     for i in 0..num_rays {
-        let ray_fraction = i as f32 / num_rays as f32; // de 0.0 a 1.0
-        let angle = player.a - FOV / 2.0 + FOV * ray_fraction;
+        // Calcular la posición x en el plano de proyección (-hw a +hw)
+        let screen_x = i as f32 - hw;
+        
+        // Calcular el ángulo del rayo relativo al jugador usando trigonometría plana
+        let ray_angle_relative = (screen_x / d_proj).atan();
+        let angle = player.a + ray_angle_relative;
+        
         let intersect = cast_ray(maze, player, angle, BLOCK_SIZE);
         
-        let mut distance = intersect.distance * (angle - player.a).cos();
+        // Corrección del ojo de pez perfecta: perpendicular al plano de la cámara
+        let mut distance = intersect.distance * ray_angle_relative.cos();
         if distance < 1.0 {
             distance = 1.0;
         }
