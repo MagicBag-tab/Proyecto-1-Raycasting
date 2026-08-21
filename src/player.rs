@@ -1,16 +1,18 @@
 use crate::maze::Maze;
-use minifb::{Key, Window};
+use minifb::{Key, Window, MouseMode};
 use nalgebra_glm::Vec2;
 use std::f32::consts::PI;
 
 pub struct Player {
     pub pos: Vec2,
     pub a: f32,
+    pub last_mouse_x: Option<f32>,
 }
 
 pub fn process_events(window: &Window, player: &mut Player, maze: &Maze, block_size: usize) {
     const MOVE_SPEED: f32 = 4.0;
     const ROTATION_SPEED: f32 = PI / 40.0;
+    const MOUSE_SENSITIVITY: f32 = 0.005;
 
     if window.is_key_down(Key::A) || window.is_key_down(Key::Left) {
         player.a -= ROTATION_SPEED;
@@ -18,6 +20,14 @@ pub fn process_events(window: &Window, player: &mut Player, maze: &Maze, block_s
 
     if window.is_key_down(Key::D) || window.is_key_down(Key::Right) {
         player.a += ROTATION_SPEED;
+    }
+    
+    if let Some((mouse_x, _mouse_y)) = window.get_mouse_pos(MouseMode::Pass) {
+        if let Some(last_x) = player.last_mouse_x {
+            let delta_x = mouse_x - last_x;
+            player.a += delta_x * MOUSE_SENSITIVITY;
+        }
+        player.last_mouse_x = Some(mouse_x);
     }
 
     let mut new_x = player.pos.x;
@@ -33,7 +43,6 @@ pub fn process_events(window: &Window, player: &mut Player, maze: &Maze, block_s
         new_y -= MOVE_SPEED * player.a.sin();
     }
 
-    // Collision detection with sliding
     let i_x = new_x as usize / block_size;
     let j_y = player.pos.y as usize / block_size;
     if j_y < maze.len() && i_x < maze[j_y].len() {
