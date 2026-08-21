@@ -35,6 +35,14 @@ fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
     let map_width = maze[0].len() * minimap_block_size;
     let map_height = maze.len() * minimap_block_size;
     
+    // Dibujar borde del minimapa (2 px más grande)
+    framebuffer.set_current_color(0xFFFFFF); // Borde blanco
+    for x in (offset_x - 2)..(offset_x + map_width + 2) {
+        for y in (offset_y - 2)..(offset_y + map_height + 2) {
+            framebuffer.point(x, y);
+        }
+    }
+    
     framebuffer.set_current_color(0x111122); // Un color oscuro azulado/grisáceo para el fondo
     for x in offset_x..offset_x + map_width {
         for y in offset_y..offset_y + map_height {
