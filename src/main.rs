@@ -26,15 +26,48 @@ fn cell_color(cell: char) -> u32 {
     }
 }
 
-fn draw_cell(framebuffer: &mut Framebuffer, xo: usize, yo: usize, cell: char) {
-    if cell == ' ' {
-        return;
+fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
+    let minimap_block_size = 4; // Tamaño de cada bloque en el minimapa (pequeño para que quepa en la esquina)
+    let offset_x = framebuffer.width - (maze[0].len() * minimap_block_size) - 20; // 20 px de margen derecho
+    let offset_y = 20; // 20 px de margen superior
+
+    // Dibujar fondo del minimapa
+    let map_width = maze[0].len() * minimap_block_size;
+    let map_height = maze.len() * minimap_block_size;
+    
+    framebuffer.set_current_color(0x111122); // Un color oscuro azulado/grisáceo para el fondo
+    for x in offset_x..offset_x + map_width {
+        for y in offset_y..offset_y + map_height {
+            framebuffer.point(x, y);
+        }
     }
 
-    framebuffer.set_current_color(cell_color(cell));
+    // Dibujar el mapa
+    for (row_idx, row) in maze.iter().enumerate() {
+        for (col_idx, &cell) in row.iter().enumerate() {
+            if cell != ' ' {
+                let color = cell_color(cell);
+                framebuffer.set_current_color(color);
+                
+                let px = offset_x + col_idx * minimap_block_size;
+                let py = offset_y + row_idx * minimap_block_size;
+                
+                for x in px..(px + minimap_block_size) {
+                    for y in py..(py + minimap_block_size) {
+                        framebuffer.point(x, y);
+                    }
+                }
+            }
+        }
+    }
 
-    for x in xo..xo + BLOCK_SIZE {
-        for y in yo..yo + BLOCK_SIZE {
+    // Dibujar al jugador
+    framebuffer.set_current_color(0xFFFFFF); // Blanco para el jugador
+    let player_px = offset_x + (player.pos.x / BLOCK_SIZE as f32 * minimap_block_size as f32) as usize;
+    let player_py = offset_y + (player.pos.y / BLOCK_SIZE as f32 * minimap_block_size as f32) as usize;
+    
+    for x in player_px.saturating_sub(2)..=player_px + 2 {
+        for y in player_py.saturating_sub(2)..=player_py + 2 {
             framebuffer.point(x, y);
         }
     }
@@ -139,6 +172,7 @@ fn main() {
         framebuffer.clear();
 
         render(&mut framebuffer, &maze, &player);
+        render_minimap(&mut framebuffer, &maze, &player);
 
         window
             .update_with_buffer(&framebuffer.buffer, framebuffer_width, framebuffer_height)
