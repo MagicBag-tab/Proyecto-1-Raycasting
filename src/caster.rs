@@ -31,6 +31,6 @@ pub fn cast_ray(
             return Intersect { distance: d, impact: cell };
         }
 
-        d += 1.0;
+        d += 0.1;
     }
 }
