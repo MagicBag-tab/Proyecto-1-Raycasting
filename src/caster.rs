@@ -5,6 +5,8 @@ use crate::player::Player;
 pub struct Intersect {
     pub distance: f32,
     pub impact: char,
+    pub x: f32,
+    pub y: f32,
 }
 
 pub fn cast_ray(
@@ -16,19 +18,21 @@ pub fn cast_ray(
     let mut d = 0.0;
 
     loop {
-        let x = (player.pos.x + d * a.cos()) as usize;
-        let y = (player.pos.y + d * a.sin()) as usize;
+        let exact_x = player.pos.x + d * a.cos();
+        let exact_y = player.pos.y + d * a.sin();
+        let x = exact_x as usize;
+        let y = exact_y as usize;
 
         let i = x / block_size;
         let j = y / block_size;
 
         if j >= maze.len() || i >= maze[j].len() {
-            return Intersect { distance: d, impact: ' ' };
+            return Intersect { distance: d, impact: ' ', x: exact_x, y: exact_y };
         }
 
         let cell = maze[j][i];
         if cell != ' ' {
-            return Intersect { distance: d, impact: cell };
+            return Intersect { distance: d, impact: cell, x: exact_x, y: exact_y };
         }
 
         d += 0.1;

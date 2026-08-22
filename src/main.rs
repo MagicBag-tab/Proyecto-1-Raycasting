@@ -2,6 +2,7 @@ mod caster;
 mod framebuffer;
 mod maze;
 mod player;
+mod texture;
 
 use minifb::{Key, Window, WindowOptions};
 use std::f32::consts::PI;
@@ -11,6 +12,7 @@ use crate::caster::cast_ray;
 use crate::framebuffer::Framebuffer;
 use crate::maze::{load_maze, Maze};
 use crate::player::{process_events, Player};
+use crate::texture::Texture;
 
 const BLOCK_SIZE: usize = 15;
 
@@ -27,30 +29,27 @@ fn cell_color(cell: char) -> u32 {
 }
 
 fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
-    let minimap_block_size = 4; // Tamaño de cada bloque en el minimapa (pequeño para que quepa en la esquina)
-    let offset_x = framebuffer.width - (maze[0].len() * minimap_block_size) - 20; // 20 px de margen derecho
-    let offset_y = 20; // 20 px de margen superior
+    let minimap_block_size = 4; 
+    let offset_x = framebuffer.width - (maze[0].len() * minimap_block_size) - 20; 
+    let offset_y = 20; 
 
-    // Dibujar fondo del minimapa
     let map_width = maze[0].len() * minimap_block_size;
     let map_height = maze.len() * minimap_block_size;
     
-    // Dibujar borde del minimapa (2 px más grande)
-    framebuffer.set_current_color(0xFFFFFF); // Borde blanco
+    framebuffer.set_current_color(0xFFFFFF); 
     for x in (offset_x - 2)..(offset_x + map_width + 2) {
         for y in (offset_y - 2)..(offset_y + map_height + 2) {
             framebuffer.point(x, y);
         }
     }
     
-    framebuffer.set_current_color(0x111122); // Un color oscuro azulado/grisáceo para el fondo
+    framebuffer.set_current_color(0x111122); 
     for x in offset_x..offset_x + map_width {
         for y in offset_y..offset_y + map_height {
             framebuffer.point(x, y);
         }
     }
 
-    // Dibujar el mapa
     for (row_idx, row) in maze.iter().enumerate() {
         for (col_idx, &cell) in row.iter().enumerate() {
             if cell != ' ' {
@@ -69,8 +68,7 @@ fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
         }
     }
 
-    // Dibujar al jugador
-    framebuffer.set_current_color(0xFFFFFF); // Blanco para el jugador
+    framebuffer.set_current_color(0xFFFFFF); 
     let player_px = offset_x + (player.pos.x / BLOCK_SIZE as f32 * minimap_block_size as f32) as usize;
     let player_py = offset_y + (player.pos.y / BLOCK_SIZE as f32 * minimap_block_size as f32) as usize;
     
@@ -81,31 +79,32 @@ fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
     }
 }
 
-fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
-    // x estacadas (rayos) dependiendo de la cantidad de columnas de la pantalla
+fn render(
+    framebuffer: &mut Framebuffer,
+    maze: &Maze,
+    player: &Player,
+    wall_texture: &Texture,
+    sky_texture: &Texture,
+    floor_texture: &Texture,
+) {
     let num_rays = framebuffer.width;
     let hw = framebuffer.width as f32 / 2.0;
     let d_proj = hw / (FOV / 2.0).tan();
 
     for i in 0..num_rays {
-        // Calcular la posición x en el plano de proyección (-hw a +hw)
         let screen_x = i as f32 - hw;
         
-        // Calcular el ángulo del rayo relativo al jugador usando trigonometría plana
         let ray_angle_relative = (screen_x / d_proj).atan();
         let angle = player.a + ray_angle_relative;
         
         let intersect = cast_ray(maze, player, angle, BLOCK_SIZE);
         
-        // Corrección del ojo de pez perfecta: perpendicular al plano de la cámara
         let mut distance = intersect.distance * ray_angle_relative.cos();
         if distance < 1.0 {
             distance = 1.0;
         }
         
         if intersect.impact != ' ' {
-            let color = cell_color(intersect.impact);
-            
             let wall_height = (BLOCK_SIZE as f32 * d_proj / distance) as usize;
             
             let start_y = if wall_height > framebuffer.height {
@@ -116,31 +115,70 @@ fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
             
             let end_y = (start_y + wall_height).min(framebuffer.height);
             
-            // Draw ceiling
-            framebuffer.set_current_color(0x333355);
             for y in 0..start_y {
+                let sky_x = (i as u32) % sky_texture.width;
+                let sky_y = (y as u32) % sky_texture.height;
+                framebuffer.set_current_color(sky_texture.get_pixel(sky_x, sky_y));
                 framebuffer.point(i, y);
             }
             
-            // Draw wall estaca
-            framebuffer.set_current_color(color);
+            // Draw wall (texture mapped by distance and impact)
+            // Calculate texture X coordinate based on where the ray hit the block
+            let hit_x = intersect.x - (intersect.x / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
+            let hit_y = intersect.y - (intersect.y / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
+            
+            // Para que no se vea gigante la pared, podemos "repetir" la textura (tiling) multiplicando
+            let wall_tile_factor = 2.0; 
+            
+            let mut tex_x = if hit_x < 0.1 || hit_x > BLOCK_SIZE as f32 - 0.1 {
+                (hit_y / BLOCK_SIZE as f32 * wall_texture.width as f32 * wall_tile_factor) as u32
+            } else {
+                (hit_x / BLOCK_SIZE as f32 * wall_texture.width as f32 * wall_tile_factor) as u32
+            };
+            tex_x = tex_x % wall_texture.width;
+            
             for y in start_y..end_y {
+                let tex_y = if wall_height > framebuffer.height {
+                    let top_offset = (wall_height - framebuffer.height) / 2;
+                    let adjusted_y = y + top_offset;
+                    (adjusted_y as f32 / wall_height as f32 * wall_texture.height as f32 * wall_tile_factor) as u32
+                } else {
+                    let adjusted_y = y - start_y;
+                    (adjusted_y as f32 / wall_height as f32 * wall_texture.height as f32 * wall_tile_factor) as u32
+                };
+                let tex_y = tex_y % wall_texture.height;
+                
+                framebuffer.set_current_color(wall_texture.get_pixel(tex_x, tex_y));
                 framebuffer.point(i, y);
             }
             
-            // Draw floor
-            framebuffer.set_current_color(0x555555);
+            // Draw floor (proper 3D floor casting)
+            let center_y = framebuffer.height as f32 / 2.0;
             for y in end_y..framebuffer.height {
+                let p = y as f32 - center_y;
+                // Prevenir división por 0
+                if p > 0.0 {
+                    let perp_dist = (BLOCK_SIZE as f32 / 2.0) * d_proj / p;
+                    let actual_dist = perp_dist / ray_angle_relative.cos();
+                    
+                    let floor_world_x = player.pos.x + actual_dist * angle.cos();
+                    let floor_world_y = player.pos.y + actual_dist * angle.sin();
+                    
+                    let floor_x = (floor_world_x * (floor_texture.width as f32 / BLOCK_SIZE as f32)) as u32 % floor_texture.width;
+                    let floor_y = (floor_world_y * (floor_texture.height as f32 / BLOCK_SIZE as f32)) as u32 % floor_texture.height;
+                    
+                    framebuffer.set_current_color(floor_texture.get_pixel(floor_x, floor_y));
+                }
                 framebuffer.point(i, y);
             }
         } else {
-            // Draw just ceiling and floor if nothing hit
-            framebuffer.set_current_color(0x333355);
+            // Draw sky for empty rays
             for y in 0..(framebuffer.height / 2) {
+                framebuffer.set_current_color(0x333355);
                 framebuffer.point(i, y);
             }
-            framebuffer.set_current_color(0x555555);
             for y in (framebuffer.height / 2)..framebuffer.height {
+                framebuffer.set_current_color(0x555555);
                 framebuffer.point(i, y);
             }
         }
@@ -155,6 +193,10 @@ fn main() {
     let frame_delay = Duration::from_millis(16);
 
     let (maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
+    
+    let sky_tex = Texture::new("./assets/sky_l1.png");
+    let wall_tex = Texture::new("./assets/wall_l1.png");
+    let floor_tex = Texture::new("./assets/suelo_l1.png");
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     framebuffer.set_background_color(0x333355);
@@ -179,7 +221,7 @@ fn main() {
 
         framebuffer.clear();
 
-        render(&mut framebuffer, &maze, &player);
+        render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex);
         render_minimap(&mut framebuffer, &maze, &player);
 
         window
