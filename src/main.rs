@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use std::fs::File;
 use std::io::BufReader;
-use rodio::{Decoder, DeviceSinkBuilder, Player as RodioPlayer};
+use rodio::{Decoder, DeviceSinkBuilder, Player as RodioPlayer, Source};
 
 use crate::caster::cast_ray;
 use crate::framebuffer::Framebuffer;
@@ -74,136 +74,6 @@ const BLOCK_SIZE: usize = 15;
 const FOV: f32 = PI / 3.0;
 
 
-/// Renderiza sprites tipo billboard en el mundo 3D usando el z-buffer de las paredes.
-/// sprites: lista de (world_x, world_y) en unidades de píxeles del mapa.
-/// Cicla entre sprite_a y sprite_b según anim_time para simular crecimiento.
-fn render_sprites(
-    framebuffer: &mut Framebuffer,
-    player: &Player,
-    sprites: &[(f32, f32)],
-    sprite_a: &Texture,
-    sprite_b: &Texture,
-    anim_time: f32,
-) {
-    let hw = framebuffer.width as f32 / 2.0;
-    let d_plano = hw / (FOV / 2.0).tan();
-    let delta_beta = FOV / framebuffer.width as f32;
-    let horizon = framebuffer.height / 2;
-
-    // Ciclo de nubes: muy lento, periodo de ~50s para que parezca variación natural
-    let cycle = (anim_time * 0.02).rem_euclid(1.0);
-    // Transición suave entre las dos texturas
-    let blend = (cycle * std::f32::consts::PI).sin().max(0.0);
-    let use_b = blend > 0.5;
-    let tex = if use_b { sprite_b } else { sprite_a };
-
-    // Ordenar por distancia (los más lejos primero → painter's algorithm)
-    let mut indexed: Vec<(usize, f32)> = sprites
-        .iter()
-        .enumerate()
-        .map(|(i, &(sx, sy))| {
-            let dx = sx - player.pos.x;
-            let dy = sy - player.pos.y;
-            (i, dx * dx + dy * dy)
-        })
-        .collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-    for (idx, _) in indexed {
-        let (sx, sy) = sprites[idx];
-        let dx = sx - player.pos.x;
-        let dy = sy - player.pos.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-
-        // Descartes tempranos
-        if dist < 1.0 || dist > 2000.0 {
-            continue;
-        }
-
-        // Ángulo del sprite en el mundo
-        let theta = dy.atan2(dx);
-
-        // Desvío respecto a la dirección de vista (normalizado a [-π, π])
-        let mut beta = theta - player.a;
-        // Normalización al rango [-π, π]
-        while beta > std::f32::consts::PI { beta -= 2.0 * std::f32::consts::PI; }
-        while beta < -std::f32::consts::PI { beta += 2.0 * std::f32::consts::PI; }
-
-        // Filtro de visibilidad: un poco más del FOV/2 de margen
-        if beta.abs() > FOV / 2.0 + 0.3 {
-            continue;
-        }
-
-        // Corrección de ojo de pez (igual que las paredes)
-        let dist_corrected = dist * beta.cos();
-        if dist_corrected < 1.0 {
-            continue;
-        }
-
-        // Mapeo idéntico al de las paredes: pantalla_x = d_plano * tan(beta)
-        let i_center = hw + d_plano * beta.tan();
-
-        // Tamaño en pantalla base (altura). Hacemos las nubes más grandes que una pared.
-        const SPRITE_SIZE: f32 = 35.0;
-        let sprite_height = (SPRITE_SIZE / dist_corrected * d_plano) as isize;
-        if sprite_height <= 0 {
-            continue;
-        }
-
-        // Mantener la proporción real de la imagen
-        let aspect_ratio = tex.width as f32 / tex.height as f32;
-        let sprite_width = (sprite_height as f32 * aspect_ratio) as isize;
-
-        let izq = (i_center as isize) - sprite_width / 2;
-        let der = izq + sprite_width;
-        
-        // Offset vertical: nubes altas en el cielo
-        let vertical_offset = (30.0 / dist_corrected * d_plano) as isize;
-        
-        // Centramos el sprite y lo subimos usando vertical_offset
-        let arr = (horizon as isize - sprite_height / 2) - vertical_offset;
-        let aba = arr + sprite_height;
-
-        // Dibujar columna por columna respetando el z-buffer
-        for k in izq..der {
-            if k < 0 || k >= framebuffer.width as isize {
-                continue;
-            }
-            let col = k as usize;
-
-            // Ocultación: si la pared es más cercana, no dibujar
-            if dist_corrected >= framebuffer.zbuffer[col] {
-                continue;
-            }
-
-            // Coordenada U de textura (0.0 → 1.0 horizontal)
-            let u = (k - izq) as f32 / sprite_width as f32;
-            let tex_x = (u * tex.width as f32) as u32 % tex.width;
-
-            for row in arr..aba {
-                if row < 0 || row >= framebuffer.height as isize {
-                    continue;
-                }
-                let v = (row - arr) as f32 / sprite_height as f32;
-                let tex_y = (v * tex.height as f32) as u32 % tex.height;
-
-                let color = tex.get_pixel(tex_x, tex_y);
-
-                let a = (color >> 24) & 0xFF;
-                let r = (color >> 16) & 0xFF;
-                let g = (color >> 8) & 0xFF;
-                let b = color & 0xFF;
-                
-                // Color clave (magenta puro) o totalmente transparente
-                if a < 10 || (r > 240 && g < 20 && b > 240) {
-                    continue;
-                }
-
-                framebuffer.point_with_color(col, row as usize, color & 0xFFFFFF); // Solo pintamos el RGB
-            }
-        }
-    }
-}
 
 fn cell_color(cell: char, level: u8) -> u32 {
     if cell == 'g' || cell == 'G' {
@@ -271,26 +141,27 @@ pub struct CloudLayer {
     pub texture: Texture,
     pub parallax_factor: f32,
     pub fade_px: f32,
+    pub wind_speed: f32,
 }
 
 fn cloud_layers_for_level(level: u8) -> Vec<CloudLayer> {
     match level {
         2 => {
             vec![
-                CloudLayer { texture: Texture::new("./assets/claude_l2-1.png"), parallax_factor: 0.4, fade_px: 20.0 },
+                CloudLayer { texture: Texture::new("./assets/claude_l2-1.png"), parallax_factor: 0.4, fade_px: 20.0, wind_speed: 15.0 },
             ]
         },
         3 => {
             vec![
-                CloudLayer { texture: Texture::new("./assets/claude_l3_1.png"), parallax_factor: 0.2, fade_px: 12.0 },
-                CloudLayer { texture: Texture::new("./assets/claude_l3-2.png"), parallax_factor: 0.35, fade_px: 12.0 },
-                CloudLayer { texture: Texture::new("./assets/claude_l3-3.png"), parallax_factor: 0.5, fade_px: 12.0 },
+                CloudLayer { texture: Texture::new("./assets/claude_l3_1.png"), parallax_factor: 0.2, fade_px: 12.0, wind_speed: 5.0 },
+                CloudLayer { texture: Texture::new("./assets/claude_l3-2.png"), parallax_factor: 0.35, fade_px: 12.0, wind_speed: 12.0 },
+                CloudLayer { texture: Texture::new("./assets/claude_l3-3.png"), parallax_factor: 0.5, fade_px: 12.0, wind_speed: 20.0 },
             ]
         },
         _ => { // Nivel 1
             vec![
-                CloudLayer { texture: Texture::new("./assets/nube1.png"), parallax_factor: 0.3, fade_px: 12.0 },
-                CloudLayer { texture: Texture::new("./assets/nube2.png"), parallax_factor: 0.5, fade_px: 12.0 },
+                CloudLayer { texture: Texture::new("./assets/nube1.png"), parallax_factor: 0.3, fade_px: 12.0, wind_speed: 10.0 },
+                CloudLayer { texture: Texture::new("./assets/nube2.png"), parallax_factor: 0.5, fade_px: 12.0, wind_speed: 20.0 },
             ]
         }
     }
@@ -302,12 +173,13 @@ fn render_clouds_parallax(
     layers: &[CloudLayer],
     i: usize,
     start_y: usize,
+    anim_time: f32,
 ) {
     let cloud_area_height = framebuffer.height / 2; // Dibujar hasta el horizonte
     let limit_y = start_y.min(cloud_area_height);
     
     for layer in layers {
-        let scroll = (player.a * layer.parallax_factor * layer.texture.width as f32 / (2.0 * std::f32::consts::PI)) as i32;
+        let scroll = (player.a * layer.parallax_factor * layer.texture.width as f32 / (2.0 * std::f32::consts::PI) + anim_time * layer.wind_speed) as i32;
         let tex_x = ((i as i32 + scroll).rem_euclid(layer.texture.width as i32)) as u32;
 
         for y in 0..limit_y {
@@ -344,6 +216,7 @@ fn render(
     meta_texture: &Texture,
     cloud_layers: &[CloudLayer],
     current_level: u8,
+    anim_time: f32,
 ) {
     let num_rays = framebuffer.width;
     let hw = framebuffer.width as f32 / 2.0;
@@ -396,7 +269,7 @@ fn render(
                 }
                 
                 // Dibujar nubes en parallax encima del cielo (pero detrás de paredes)
-                render_clouds_parallax(framebuffer, player, cloud_layers, i, start_y);
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, start_y, anim_time);
                 
                 let hit_x = intersect.x - (intersect.x / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
                 let hit_y = intersect.y - (intersect.y / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
@@ -453,7 +326,7 @@ fn render(
                     framebuffer.point(i, y);
                 }
                 
-                render_clouds_parallax(framebuffer, player, cloud_layers, i, start_y);
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, start_y, anim_time);
                 
                 let wall_color = cell_color(intersect.impact, current_level);
                 framebuffer.set_current_color(wall_color);
@@ -477,7 +350,7 @@ fn render(
                     framebuffer.point(i, y);
                 }
                 
-                render_clouds_parallax(framebuffer, player, cloud_layers, i, horizon_y);
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, horizon_y, anim_time);
                 
                 let center_y = framebuffer.height as f32 / 2.0;
                 for y in horizon_y..framebuffer.height {
@@ -499,7 +372,7 @@ fn render(
                     framebuffer.point(i, y);
                 }
                 
-                render_clouds_parallax(framebuffer, player, cloud_layers, i, horizon_y);
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, horizon_y, anim_time);
                 
                 for y in horizon_y..framebuffer.height {
                     framebuffer.set_current_color(floor_color);
@@ -532,24 +405,7 @@ fn main() {
     let welcome_bg = Texture::new("./assets/bienvenida.png");
     let success_bg = Texture::new("./assets/felicitaciones.png");
     let meta_tex = Texture::new("./assets/meta.png");
-    let sprite_demoplants = Texture::new("./assets/claude_l1-1.png"); // o demoplants.png si existen
-    let sprite_flowers = Texture::new("./assets/claude_l1-2.png");
-    
     let mut cloud_layers = cloud_layers_for_level(1);
-    
-    // Posiciones de sprites en coordenadas de mundo. Bloque = 15 px.
-    // Llenamos los espacios vacíos del laberinto para asegurar que sean visibles.
-    let mut sprite_positions: Vec<(f32, f32)> = Vec::new();
-    for y in 0..maze.len() {
-        for x in 0..maze[y].len() {
-            if maze[y][x] == ' ' {
-                // Colocar de forma pseudo-aleatoria para que no queden en una línea estricta
-                if (x * 13 + y * 7) % 15 == 0 {
-                    sprite_positions.push((x as f32 * 15.0 + 7.5, y as f32 * 15.0 + 7.5));
-                }
-            }
-        }
-    }
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     framebuffer.set_background_color(0x333355);
@@ -571,7 +427,7 @@ fn main() {
     if let Some(audio) = &_audio_player {
         if let Ok(file) = File::open("./assets/Post-Dream.mp3") {
             if let Ok(source) = Decoder::new(BufReader::new(file)) {
-                audio.append(source);
+                audio.append(source.repeat_infinite());
             }
         }
     }
@@ -604,7 +460,7 @@ fn main() {
                 let track = if use_taylor { "./assets/taylor_8bits.mp3" } else { "./assets/Post-Dream.mp3" };
                 if let Ok(file) = File::open(track) {
                     if let Ok(source) = Decoder::new(BufReader::new(file)) {
-                        audio.append(source);
+                        audio.append(source.repeat_infinite());
                     }
                 }
             }
@@ -679,17 +535,9 @@ fn main() {
                     &meta_tex,
                     &cloud_layers,
                     current_level,
-                );
-
-                // Sprites 3D de plantas/decoraciones
-                render_sprites(
-                    &mut framebuffer,
-                    &player,
-                    &sprite_positions,
-                    &sprite_demoplants,
-                    &sprite_flowers,
                     anim_time,
                 );
+
 
                 render_minimap(&mut framebuffer, &maze, &player, current_level);
                 

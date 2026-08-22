@@ -2,6 +2,12 @@
 
 Un motor de Raycasting en 3D escrito en Rust desde cero para el curso de Gráficas por Computadora.
 
+## Video de Prueba
+<!-- Reproduce el video de demostración desde la carpeta assets -->
+<video src="./assets/demo_proyecto.mp4" controls="controls" width="100%">
+  Tu navegador no soporta el elemento de video.
+</video>
+
 ## Características Implementadas (Rúbrica de 100 puntos)
 - **Motor Base:** Renderizado de paredes en 3D a través de raymarching, movimiento con teclado, rotación de cámara con **Mouse**.
 - **Texturizado y Parallax:** Carga de imágenes con texturas distintas para 3 niveles diferentes (Atardecer, Noche, Amanecer). Texturizado correcto de paredes, cielo y **Piso** (Floor casting con perspectiva 3D). Además, se implementó un sistema de **Nubes en Parallax Horizontal** con transparencias sobrepuestas al cielo para dar profundidad infinita. Soporte de tecla **T** para alternar con colores sólidos. La textura del bloque final ahora usa la imagen `meta.png`.
