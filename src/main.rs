@@ -340,9 +340,9 @@ fn main() {
                 draw_text_with_border(&mut framebuffer, "LIMINAL MAZE", 200, 200, 6, 0xFFDD55, 0x000000);
                 
                 draw_text_with_border(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 (Bosque)", 250, 420, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 (Desierto/L2)", 250, 480, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 (Nieve/L3)", 250, 540, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 Atardecer", 250, 420, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 Noche", 250, 480, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 Amanecer", 250, 540, 2, 0xFFDD55, 0x000000);
                 
                 let mut level_selected = 0;
                 if window.is_key_down(Key::Key1) { level_selected = 1; }
