@@ -1,4 +1,3 @@
-use crate::framebuffer::Framebuffer;
 use crate::maze::Maze;
 use crate::player::Player;
 

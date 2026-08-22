@@ -70,15 +70,18 @@ const BLOCK_SIZE: usize = 15;
 
 const FOV: f32 = PI / 3.0;
 
-fn cell_color(cell: char) -> u32 {
-    match cell {
-        '+' | '-' | '|' => 0x228B22, // Verde bosque para que haga match con los arbustos
-        'g' | 'G' => 0x00FF00, // Meta brillante
-        _ => 0x228B22,   // Cualquier otra pared
+fn cell_color(cell: char, level: u8) -> u32 {
+    if cell == 'g' || cell == 'G' {
+        return 0x00FF00; // Meta brillante
+    }
+    match level {
+        2 => 0xD2B48C, // Arena/Ladrillo para el desierto
+        3 => 0xB0E0E6, // Hielo/Azul claro para la nieve
+        _ => 0x228B22, // Verde bosque para el nivel 1
     }
 }
 
-fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
+fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, current_level: u8) {
     let minimap_block_size = 4; 
     let offset_x = framebuffer.width - (maze[0].len() * minimap_block_size) - 20; 
     let offset_y = 20; 
@@ -103,7 +106,7 @@ fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
     for (row_idx, row) in maze.iter().enumerate() {
         for (col_idx, &cell) in row.iter().enumerate() {
             if cell != ' ' {
-                let color = cell_color(cell);
+                let color = cell_color(cell, current_level);
                 framebuffer.set_current_color(color);
                 
                 let px = offset_x + col_idx * minimap_block_size;
@@ -136,10 +139,23 @@ fn render(
     wall_texture: &Texture,
     sky_texture: &Texture,
     floor_texture: &Texture,
+    current_level: u8,
 ) {
     let num_rays = framebuffer.width;
     let hw = framebuffer.width as f32 / 2.0;
     let d_proj = hw / (FOV / 2.0).tan();
+
+    let sky_color = match current_level {
+        2 => 0x87CEEB, // Cielo claro desierto
+        3 => 0xA9A9A9, // Cielo gris nieve
+        _ => 0x191970, // Noche/oscuro nivel 1
+    };
+    
+    let floor_color = match current_level {
+        2 => 0xDEB887, // Arena oscura
+        3 => 0xFFFFFF, // Nieve blanca
+        _ => 0x556B2F, // Pasto oscuro
+    };
 
     for i in 0..num_rays {
         let screen_x = i as f32 - hw;
@@ -224,17 +240,17 @@ fn render(
                 }
             } else {
                 // Modo color sólido
-                framebuffer.set_current_color(0x191970); // Color del cielo
+                framebuffer.set_current_color(sky_color); // Color del cielo
                 for y in 0..start_y {
                     framebuffer.point(i, y);
                 }
                 
-                framebuffer.set_current_color(cell_color(intersect.impact)); // Color de la pared
+                framebuffer.set_current_color(cell_color(intersect.impact, current_level)); // Color de la pared
                 for y in start_y..end_y {
                     framebuffer.point(i, y);
                 }
                 
-                framebuffer.set_current_color(0x556B2F); // Color del piso
+                framebuffer.set_current_color(floor_color); // Color del piso
                 for y in end_y..framebuffer.height {
                     framebuffer.point(i, y);
                 }
@@ -265,11 +281,11 @@ fn render(
                 }
             } else {
                 for y in 0..(framebuffer.height / 2) {
-                    framebuffer.set_current_color(0x191970);
+                    framebuffer.set_current_color(sky_color);
                     framebuffer.point(i, y);
                 }
                 for y in (framebuffer.height / 2)..framebuffer.height {
-                    framebuffer.set_current_color(0x556B2F);
+                    framebuffer.set_current_color(floor_color);
                     framebuffer.point(i, y);
                 }
             }
@@ -314,6 +330,7 @@ fn main() {
     
     let mut level_start_time = Instant::now();
     let mut game_state = GameState::Welcome;
+    let mut current_level = 1u8;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let current_time = Instant::now();
@@ -341,9 +358,9 @@ fn main() {
                 draw_text_with_border(&mut framebuffer, "LIMINAL MAZE", 200, 200, 6, 0xFFDD55, 0x000000);
                 
                 draw_text_with_border(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 Atardecer", 250, 420, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 Noche", 250, 480, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 Amanecer", 250, 540, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 (Bosque)", 250, 420, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 (Desierto/L2)", 250, 480, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 (Nieve/L3)", 250, 540, 2, 0xFFDD55, 0x000000);
                 
                 let mut level_selected = 0;
                 if window.is_key_down(Key::Key1) { level_selected = 1; }
@@ -351,6 +368,7 @@ fn main() {
                 else if window.is_key_down(Key::Key3) { level_selected = 3; }
                 
                 if level_selected > 0 {
+                    current_level = level_selected;
                     sky_tex = Texture::new(&format!("./assets/sky_l{}.png", level_selected));
                     wall_tex = Texture::new(&format!("./assets/wall_l{}.png", level_selected));
                     floor_tex = Texture::new(&format!("./assets/suelo_l{}.png", level_selected));
@@ -379,11 +397,18 @@ fn main() {
                     game_state = GameState::Success;
                 }
 
-                render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex);
-                render_minimap(&mut framebuffer, &maze, &player);
+                render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex, current_level);
+                render_minimap(&mut framebuffer, &maze, &player, current_level);
+                
+                let level_name = match current_level {
+                    2 => "Nivel 2: Desierto",
+                    3 => "Nivel 3: Nieve",
+                    _ => "Nivel 1: Bosque",
+                };
+                draw_text_with_border(&mut framebuffer, level_name, 20, 50, 2, 0xFFDD55, 0x000000);
                 
                 if level_start_time.elapsed().as_secs() < 2 {
-                    draw_text_with_border(&mut framebuffer, "ENCUENTRA EL ARBOL PARA SALIR", 220, 350, 3, 0xFFFFFF, 0x000000);
+                    draw_text_with_border(&mut framebuffer, "ENCUENTRA EL ARBOL PARA SALIR", 220, 350, 3, 0xFFDD55, 0x000000);
                 }
             },
             
