@@ -8,6 +8,9 @@ use minifb::{Key, Window, WindowOptions, MouseMode};
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
+use std::fs::File;
+use std::io::BufReader;
+use rodio::{Decoder, DeviceSinkBuilder, Player as RodioPlayer};
 
 use crate::caster::cast_ray;
 use crate::framebuffer::Framebuffer;
@@ -305,6 +308,17 @@ fn main() {
     let framebuffer_width = 1024;
     let framebuffer_height = 768;
     let frame_delay = Duration::from_millis(16);
+
+    // Audio inicialización
+    let _sink_handle = DeviceSinkBuilder::open_default_sink().ok();
+    let _player = _sink_handle.as_ref().map(|handle| RodioPlayer::connect_new(&handle.mixer()));
+    if let Some(player) = &_player {
+        if let Ok(file) = File::open("./assets/Post-Dream.mp3") {
+            if let Ok(source) = Decoder::new(BufReader::new(file)) {
+                player.append(source);
+            }
+        }
+    }
 
     let (mut maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
     
