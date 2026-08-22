@@ -4,7 +4,7 @@ mod maze;
 mod player;
 mod texture;
 
-use minifb::{Key, Window, WindowOptions, MouseMode};
+use minifb::{Key, Window, WindowOptions};
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
@@ -72,6 +72,138 @@ fn draw_text_with_border(
 const BLOCK_SIZE: usize = 15;
 
 const FOV: f32 = PI / 3.0;
+
+
+/// Renderiza sprites tipo billboard en el mundo 3D usando el z-buffer de las paredes.
+/// sprites: lista de (world_x, world_y) en unidades de píxeles del mapa.
+/// Cicla entre sprite_a y sprite_b según anim_time para simular crecimiento.
+fn render_sprites(
+    framebuffer: &mut Framebuffer,
+    player: &Player,
+    sprites: &[(f32, f32)],
+    sprite_a: &Texture,
+    sprite_b: &Texture,
+    anim_time: f32,
+) {
+    let hw = framebuffer.width as f32 / 2.0;
+    let d_plano = hw / (FOV / 2.0).tan();
+    let delta_beta = FOV / framebuffer.width as f32;
+    let horizon = framebuffer.height / 2;
+
+    // Ciclo de nubes: muy lento, periodo de ~50s para que parezca variación natural
+    let cycle = (anim_time * 0.02).rem_euclid(1.0);
+    // Transición suave entre las dos texturas
+    let blend = (cycle * std::f32::consts::PI).sin().max(0.0);
+    let use_b = blend > 0.5;
+    let tex = if use_b { sprite_b } else { sprite_a };
+
+    // Ordenar por distancia (los más lejos primero → painter's algorithm)
+    let mut indexed: Vec<(usize, f32)> = sprites
+        .iter()
+        .enumerate()
+        .map(|(i, &(sx, sy))| {
+            let dx = sx - player.pos.x;
+            let dy = sy - player.pos.y;
+            (i, dx * dx + dy * dy)
+        })
+        .collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    for (idx, _) in indexed {
+        let (sx, sy) = sprites[idx];
+        let dx = sx - player.pos.x;
+        let dy = sy - player.pos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        // Descartes tempranos
+        if dist < 1.0 || dist > 2000.0 {
+            continue;
+        }
+
+        // Ángulo del sprite en el mundo
+        let theta = dy.atan2(dx);
+
+        // Desvío respecto a la dirección de vista (normalizado a [-π, π])
+        let mut beta = theta - player.a;
+        // Normalización al rango [-π, π]
+        while beta > std::f32::consts::PI { beta -= 2.0 * std::f32::consts::PI; }
+        while beta < -std::f32::consts::PI { beta += 2.0 * std::f32::consts::PI; }
+
+        // Filtro de visibilidad: un poco más del FOV/2 de margen
+        if beta.abs() > FOV / 2.0 + 0.3 {
+            continue;
+        }
+
+        // Corrección de ojo de pez (igual que las paredes)
+        let dist_corrected = dist * beta.cos();
+        if dist_corrected < 1.0 {
+            continue;
+        }
+
+        // Mapeo idéntico al de las paredes: pantalla_x = d_plano * tan(beta)
+        let i_center = hw + d_plano * beta.tan();
+
+        // Tamaño en pantalla base (altura). Hacemos las nubes más grandes que una pared.
+        const SPRITE_SIZE: f32 = 35.0;
+        let sprite_height = (SPRITE_SIZE / dist_corrected * d_plano) as isize;
+        if sprite_height <= 0 {
+            continue;
+        }
+
+        // Mantener la proporción real de la imagen
+        let aspect_ratio = tex.width as f32 / tex.height as f32;
+        let sprite_width = (sprite_height as f32 * aspect_ratio) as isize;
+
+        let izq = (i_center as isize) - sprite_width / 2;
+        let der = izq + sprite_width;
+        
+        // Offset vertical: nubes altas en el cielo
+        let vertical_offset = (30.0 / dist_corrected * d_plano) as isize;
+        
+        // Centramos el sprite y lo subimos usando vertical_offset
+        let arr = (horizon as isize - sprite_height / 2) - vertical_offset;
+        let aba = arr + sprite_height;
+
+        // Dibujar columna por columna respetando el z-buffer
+        for k in izq..der {
+            if k < 0 || k >= framebuffer.width as isize {
+                continue;
+            }
+            let col = k as usize;
+
+            // Ocultación: si la pared es más cercana, no dibujar
+            if dist_corrected >= framebuffer.zbuffer[col] {
+                continue;
+            }
+
+            // Coordenada U de textura (0.0 → 1.0 horizontal)
+            let u = (k - izq) as f32 / sprite_width as f32;
+            let tex_x = (u * tex.width as f32) as u32 % tex.width;
+
+            for row in arr..aba {
+                if row < 0 || row >= framebuffer.height as isize {
+                    continue;
+                }
+                let v = (row - arr) as f32 / sprite_height as f32;
+                let tex_y = (v * tex.height as f32) as u32 % tex.height;
+
+                let color = tex.get_pixel(tex_x, tex_y);
+
+                let a = (color >> 24) & 0xFF;
+                let r = (color >> 16) & 0xFF;
+                let g = (color >> 8) & 0xFF;
+                let b = color & 0xFF;
+                
+                // Color clave (magenta puro) o totalmente transparente
+                if a < 10 || (r > 240 && g < 20 && b > 240) {
+                    continue;
+                }
+
+                framebuffer.point_with_color(col, row as usize, color & 0xFFFFFF); // Solo pintamos el RGB
+            }
+        }
+    }
+}
 
 fn cell_color(cell: char, level: u8) -> u32 {
     if cell == 'g' || cell == 'G' {
@@ -142,6 +274,7 @@ fn render(
     wall_texture: &Texture,
     sky_texture: &Texture,
     floor_texture: &Texture,
+    meta_texture: &Texture,
     current_level: u8,
 ) {
     let num_rays = framebuffer.width;
@@ -175,6 +308,8 @@ fn render(
         
         if intersect.impact != ' ' {
             let wall_height = (BLOCK_SIZE as f32 * d_proj / distance) as usize;
+            // Guardar distancia en z-buffer para que los sprites no se dibujen delante de paredes
+            framebuffer.zbuffer[i] = distance;
             
             let start_y = if wall_height > framebuffer.height {
                 0
@@ -192,33 +327,32 @@ fn render(
                     framebuffer.point(i, y);
                 }
                 
-                // Draw wall (texture mapped by distance and impact)
-                // Calculate texture X coordinate based on where the ray hit the block
                 let hit_x = intersect.x - (intersect.x / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
                 let hit_y = intersect.y - (intersect.y / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
                 
-                // Para que no se vea gigante la pared, podemos "repetir" la textura (tiling) multiplicando
-                let wall_tile_factor = 2.0; 
+                let is_goal = intersect.impact == 'g' || intersect.impact == 'G';
+                let active_tex = if is_goal { meta_texture } else { wall_texture };
+                let wall_tile_factor = if is_goal { 1.0 } else { 2.0 };
                 
                 let mut tex_x = if hit_x < 0.1 || hit_x > BLOCK_SIZE as f32 - 0.1 {
-                    (hit_y / BLOCK_SIZE as f32 * wall_texture.width as f32 * wall_tile_factor) as u32
+                    (hit_y / BLOCK_SIZE as f32 * active_tex.width as f32 * wall_tile_factor) as u32
                 } else {
-                    (hit_x / BLOCK_SIZE as f32 * wall_texture.width as f32 * wall_tile_factor) as u32
+                    (hit_x / BLOCK_SIZE as f32 * active_tex.width as f32 * wall_tile_factor) as u32
                 };
-                tex_x = tex_x % wall_texture.width;
+                tex_x = tex_x % active_tex.width;
                 
                 for y in start_y..end_y {
                     let tex_y = if wall_height > framebuffer.height {
                         let top_offset = (wall_height - framebuffer.height) / 2;
                         let adjusted_y = y + top_offset;
-                        (adjusted_y as f32 / wall_height as f32 * wall_texture.height as f32 * wall_tile_factor) as u32
+                        (adjusted_y as f32 / wall_height as f32 * active_tex.height as f32 * wall_tile_factor) as u32
                     } else {
                         let adjusted_y = y - start_y;
-                        (adjusted_y as f32 / wall_height as f32 * wall_texture.height as f32 * wall_tile_factor) as u32
+                        (adjusted_y as f32 / wall_height as f32 * active_tex.height as f32 * wall_tile_factor) as u32
                     };
-                    let tex_y = tex_y % wall_texture.height;
+                    let tex_y = tex_y % active_tex.height;
                     
-                    framebuffer.set_current_color(wall_texture.get_pixel(tex_x, tex_y));
+                    framebuffer.set_current_color(active_tex.get_pixel(tex_x, tex_y));
                     framebuffer.point(i, y);
                 }
                 
@@ -248,7 +382,8 @@ fn render(
                     framebuffer.point(i, y);
                 }
                 
-                framebuffer.set_current_color(cell_color(intersect.impact, current_level)); // Color de la pared
+                let wall_color = cell_color(intersect.impact, current_level);
+                framebuffer.set_current_color(wall_color);
                 for y in start_y..end_y {
                     framebuffer.point(i, y);
                 }
@@ -309,17 +444,6 @@ fn main() {
     let framebuffer_height = 768;
     let frame_delay = Duration::from_millis(16);
 
-    // Audio inicialización
-    let _sink_handle = DeviceSinkBuilder::open_default_sink().ok();
-    let _player = _sink_handle.as_ref().map(|handle| RodioPlayer::connect_new(&handle.mixer()));
-    if let Some(player) = &_player {
-        if let Ok(file) = File::open("./assets/Post-Dream.mp3") {
-            if let Ok(source) = Decoder::new(BufReader::new(file)) {
-                player.append(source);
-            }
-        }
-    }
-
     let (mut maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
     
     // Load default textures
@@ -328,6 +452,23 @@ fn main() {
     let mut floor_tex = Texture::new("./assets/suelo_l1.png");
     let welcome_bg = Texture::new("./assets/bienvenida.png");
     let success_bg = Texture::new("./assets/felicitaciones.png");
+    let meta_tex = Texture::new("./assets/meta.png");
+    let sprite_cloud_a = Texture::new("./assets/nube1.png");
+    let sprite_cloud_b = Texture::new("./assets/nube2.png");
+    
+    // Posiciones de sprites en coordenadas de mundo. Bloque = 15 px.
+    // Llenamos los espacios vacíos del laberinto para asegurar que sean visibles.
+    let mut sprite_positions: Vec<(f32, f32)> = Vec::new();
+    for y in 0..maze.len() {
+        for x in 0..maze[y].len() {
+            if maze[y][x] == ' ' {
+                // Colocar de forma pseudo-aleatoria para que no queden en una línea estricta
+                if (x * 13 + y * 7) % 15 == 0 {
+                    sprite_positions.push((x as f32 * 15.0 + 7.5, y as f32 * 15.0 + 7.5));
+                }
+            }
+        }
+    }
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     framebuffer.set_background_color(0x333355);
@@ -343,9 +484,24 @@ fn main() {
     let mut last_time = Instant::now();
     let mut fps = 0;
     
+    // Audio inicialización
+    let _sink_handle = DeviceSinkBuilder::open_default_sink().ok();
+    let mut _audio_player = _sink_handle.as_ref().map(|handle| RodioPlayer::connect_new(&handle.mixer()));
+    if let Some(audio) = &_audio_player {
+        if let Ok(file) = File::open("./assets/Post-Dream.mp3") {
+            if let Ok(source) = Decoder::new(BufReader::new(file)) {
+                audio.append(source);
+            }
+        }
+    }
+    
     let mut level_start_time = Instant::now();
     let mut game_state = GameState::Welcome;
     let mut current_level = 1u8;
+    
+    let mut use_taylor = false;
+    let mut last_music_toggle = Instant::now();
+    let mut anim_time = 0.0f32;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let current_time = Instant::now();
@@ -354,6 +510,23 @@ fn main() {
         
         if frame_time > 0.0 {
             fps = (1.0 / frame_time) as u32;
+        }
+        anim_time += frame_time;
+
+        if window.is_key_down(Key::M) && last_music_toggle.elapsed().as_millis() > 300 {
+            use_taylor = !use_taylor;
+            last_music_toggle = Instant::now();
+            
+            // Restart audio with the selected track
+            _audio_player = _sink_handle.as_ref().map(|handle| RodioPlayer::connect_new(&handle.mixer()));
+            if let Some(audio) = &_audio_player {
+                let track = if use_taylor { "./assets/taylor_8bits.mp3" } else { "./assets/Post-Dream.mp3" };
+                if let Ok(file) = File::open(track) {
+                    if let Ok(source) = Decoder::new(BufReader::new(file)) {
+                        audio.append(source);
+                    }
+                }
+            }
         }
 
         framebuffer.clear();
@@ -370,12 +543,14 @@ fn main() {
                     }
                 }
                 
-                draw_text_with_border(&mut framebuffer, "LIMINAL MAZE", 200, 200, 6, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "LIMINAL MAZE", 224, 200, 6, 0xFFDD55, 0x000000);
                 
-                draw_text_with_border(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 (Bosque)", 250, 420, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 (Desierto/L2)", 250, 480, 2, 0xFFDD55, 0x000000);
-                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 (Nieve/L3)", 250, 540, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "Selecciona un Nivel para empezar:", 248, 350, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 Atardecer", 352, 420, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 Noche", 312, 480, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 Amanecer", 336, 540, 2, 0xFFDD55, 0x000000);
+                
+                draw_text_with_border(&mut framebuffer, "Presiona M para cambiar la musica (Taylor Swift 8-Bits)", 72, 650, 2, 0xFFDD55, 0x000000);
                 
                 let mut level_selected = 0;
                 if window.is_key_down(Key::Key1) { level_selected = 1; }
@@ -412,7 +587,27 @@ fn main() {
                     game_state = GameState::Success;
                 }
 
-                render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex, current_level);
+                render(
+                    &mut framebuffer,
+                    &maze,
+                    &player,
+                    &wall_tex,
+                    &sky_tex,
+                    &floor_tex,
+                    &meta_tex,
+                    current_level,
+                );
+
+                // Sprites 3D de nubes flotando
+                render_sprites(
+                    &mut framebuffer,
+                    &player,
+                    &sprite_positions,
+                    &sprite_cloud_a,
+                    &sprite_cloud_b,
+                    anim_time,
+                );
+
                 render_minimap(&mut framebuffer, &maze, &player, current_level);
                 
                 let level_name = match current_level {
@@ -423,7 +618,7 @@ fn main() {
                 draw_text_with_border(&mut framebuffer, level_name, 20, 50, 2, 0xFFDD55, 0x000000);
                 
                 if level_start_time.elapsed().as_secs() < 2 {
-                    draw_text_with_border(&mut framebuffer, "ENCUENTRA EL ARBOL PARA SALIR", 220, 350, 3, 0xFFDD55, 0x000000);
+                    draw_text_with_border(&mut framebuffer, "ENCUENTRA EL ARBOL PARA SALIR", 164, 350, 3, 0xFFDD55, 0x000000);
                 }
             },
             
@@ -438,9 +633,9 @@ fn main() {
                     }
                 }
                 
-                draw_text_with_border(&mut framebuffer, "¡META ALCANZADA!", 150, 300, 6, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "¡META ALCANZADA!", 128, 300, 6, 0xFFDD55, 0x000000);
                 
-                draw_text_with_border(&mut framebuffer, "Presiona ENTER para volver al menu", 200, 500, 2, 0xFFDD55, 0x000000);
+                draw_text_with_border(&mut framebuffer, "Presiona ENTER para volver al menu", 240, 500, 2, 0xFFDD55, 0x000000);
                 
                 if window.is_key_down(Key::Enter) {
                     game_state = GameState::Welcome;
