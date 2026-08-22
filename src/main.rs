@@ -4,15 +4,40 @@ mod maze;
 mod player;
 mod texture;
 
-use minifb::{Key, Window, WindowOptions};
+use minifb::{Key, Window, WindowOptions, MouseMode};
 use std::f32::consts::PI;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use font8x8::{BASIC_FONTS, UnicodeFonts};
 
 use crate::caster::cast_ray;
 use crate::framebuffer::Framebuffer;
 use crate::maze::{load_maze, Maze};
 use crate::player::{process_events, Player};
 use crate::texture::Texture;
+
+fn draw_text(framebuffer: &mut Framebuffer, text: &str, start_x: usize, start_y: usize, scale: usize) {
+    let mut x_offset = start_x;
+    for c in text.chars() {
+        if let Some(glyph) = BASIC_FONTS.get(c) {
+            for (y, row) in glyph.iter().enumerate() {
+                for x in 0..8 {
+                    if (row & (1 << x)) != 0 {
+                        for dy in 0..scale {
+                            for dx in 0..scale {
+                                let px = x_offset + x * scale + dx;
+                                let py = start_y + y * scale + dy;
+                                if px < framebuffer.width && py < framebuffer.height {
+                                    framebuffer.point(px, py);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        x_offset += 8 * scale + 2;
+    }
+}
 
 const BLOCK_SIZE: usize = 15;
 
@@ -225,6 +250,12 @@ fn render(
     }
 }
 
+enum GameState {
+    Welcome,
+    Playing,
+    Success,
+}
+
 fn main() {
     let window_width = 1024;
     let window_height = 768;
@@ -232,11 +263,12 @@ fn main() {
     let framebuffer_height = 768;
     let frame_delay = Duration::from_millis(16);
 
-    let (maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
+    let (mut maze, mut player) = load_maze("./maze.txt", BLOCK_SIZE);
     
-    let sky_tex = Texture::new("./assets/sky_l1.png");
-    let wall_tex = Texture::new("./assets/wall_l1.png");
-    let floor_tex = Texture::new("./assets/suelo_l1.png");
+    // Load default textures
+    let mut sky_tex = Texture::new("./assets/sky_l1.png");
+    let mut wall_tex = Texture::new("./assets/wall_l1.png");
+    let mut floor_tex = Texture::new("./assets/suelo_l1.png");
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     framebuffer.set_background_color(0x333355);
@@ -249,25 +281,104 @@ fn main() {
     )
     .unwrap();
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        process_events(&window, &mut player, &maze, BLOCK_SIZE);
+    let mut last_time = Instant::now();
+    let mut fps = 0;
+    
+    let mut game_state = GameState::Welcome;
 
-        let i = player.pos.x as usize / BLOCK_SIZE;
-        let j = player.pos.y as usize / BLOCK_SIZE;
-        if maze.get(j).and_then(|row| row.get(i)) == Some(&'g') {
-            println!("¡Meta alcanzada! Fin del juego.");
-            break;
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        let current_time = Instant::now();
+        let frame_time = current_time.duration_since(last_time).as_secs_f32();
+        last_time = current_time;
+        
+        if frame_time > 0.0 {
+            fps = (1.0 / frame_time) as u32;
         }
 
         framebuffer.clear();
 
-        render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex);
-        render_minimap(&mut framebuffer, &maze, &player);
+        match game_state {
+            GameState::Welcome => {
+                framebuffer.set_current_color(0x111122);
+                for y in 0..framebuffer.height {
+                    for x in 0..framebuffer.width {
+                        framebuffer.point(x, y);
+                    }
+                }
+                
+                framebuffer.set_current_color(0xFFDD55);
+                draw_text(&mut framebuffer, "MAZE RUNNER", 200, 200, 6);
+                
+                framebuffer.set_current_color(0xFFFFFF);
+                draw_text(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2);
+                draw_text(&mut framebuffer, "[1] Nivel 1 (Bosque)", 250, 420, 2);
+                draw_text(&mut framebuffer, "[2] Nivel 2 (Desierto/L2)", 250, 480, 2);
+                draw_text(&mut framebuffer, "[3] Nivel 3 (Nieve/L3)", 250, 540, 2);
+                
+                let mut level_selected = 0;
+                if window.is_key_down(Key::Key1) { level_selected = 1; }
+                else if window.is_key_down(Key::Key2) { level_selected = 2; }
+                else if window.is_key_down(Key::Key3) { level_selected = 3; }
+                
+                if level_selected > 0 {
+                    sky_tex = Texture::new(&format!("./assets/sky_l{}.png", level_selected));
+                    wall_tex = Texture::new(&format!("./assets/wall_l{}.png", level_selected));
+                    floor_tex = Texture::new(&format!("./assets/suelo_l{}.png", level_selected));
+                    
+                    let (new_maze, new_player) = load_maze("./maze.txt", BLOCK_SIZE);
+                    maze = new_maze;
+                    player = new_player;
+                    
+                    game_state = GameState::Playing;
+                }
+            },
+            
+            GameState::Playing => {
+                process_events(&window, &mut player, &maze, BLOCK_SIZE);
+
+                let i = player.pos.x as usize / BLOCK_SIZE;
+                let j = player.pos.y as usize / BLOCK_SIZE;
+                if maze.get(j).and_then(|row| row.get(i)) == Some(&'g') {
+                    game_state = GameState::Success;
+                }
+
+                render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex);
+                render_minimap(&mut framebuffer, &maze, &player);
+            },
+            
+            GameState::Success => {
+                framebuffer.set_current_color(0x005500);
+                for y in 0..framebuffer.height {
+                    for x in 0..framebuffer.width {
+                        framebuffer.point(x, y);
+                    }
+                }
+                
+                framebuffer.set_current_color(0x00FF00);
+                draw_text(&mut framebuffer, "¡META ALCANZADA!", 150, 300, 6);
+                
+                framebuffer.set_current_color(0xFFFFFF);
+                draw_text(&mut framebuffer, "Presiona ENTER para volver al menu", 200, 500, 2);
+                
+                if window.is_key_down(Key::Enter) {
+                    game_state = GameState::Welcome;
+                }
+            }
+        }
+
+        // Dibujar FPS siempre encima
+        framebuffer.set_current_color(0xFFDD55); 
+        let fps_text = format!("FPS: {}", fps);
+        draw_text(&mut framebuffer, &fps_text, 20, 20, 2);
 
         window
             .update_with_buffer(&framebuffer.buffer, framebuffer_width, framebuffer_height)
             .unwrap();
 
-        std::thread::sleep(frame_delay);
+        // Controlar que los FPS no vayan más rápido de lo necesario
+        let elapsed = current_time.elapsed();
+        if elapsed < frame_delay {
+            std::thread::sleep(frame_delay - elapsed);
+        }
     }
 }
