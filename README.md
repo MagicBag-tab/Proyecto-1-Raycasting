@@ -3,7 +3,7 @@
 Un motor de Raycasting en 3D escrito en Rust desde cero para el curso de Gráficas por Computadora.
 
 ## Video de Prueba
-<video src="./assets/demo_proyecto_1.mp4" controls="controls" width="100%">
+<video src="./assets/demo_proyecto_1_l1.mp4" controls="controls" width="100%">
   Tu navegador no soporta el elemento de video.
 </video>
 
