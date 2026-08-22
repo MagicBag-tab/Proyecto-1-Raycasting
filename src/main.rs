@@ -39,6 +39,33 @@ fn draw_text(framebuffer: &mut Framebuffer, text: &str, start_x: usize, start_y:
     }
 }
 
+fn draw_text_with_border(
+    framebuffer: &mut Framebuffer,
+    text: &str,
+    start_x: usize,
+    start_y: usize,
+    scale: usize,
+    text_color: u32,
+    border_color: u32,
+) {
+    let offset = if scale > 2 { 3 } else { 1 };
+    
+    framebuffer.set_current_color(border_color);
+    for dx in [-1isize, 0, 1] {
+        for dy in [-1isize, 0, 1] {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let px = (start_x as isize + dx * offset).max(0) as usize;
+            let py = (start_y as isize + dy * offset).max(0) as usize;
+            draw_text(framebuffer, text, px, py, scale);
+        }
+    }
+    
+    framebuffer.set_current_color(text_color);
+    draw_text(framebuffer, text, start_x, start_y, scale);
+}
+
 const BLOCK_SIZE: usize = 15;
 
 const FOV: f32 = PI / 3.0;
@@ -310,14 +337,12 @@ fn main() {
                     }
                 }
                 
-                framebuffer.set_current_color(0xFFDD55);
-                draw_text(&mut framebuffer, "LIMINAL MAZE", 200, 200, 6);
+                draw_text_with_border(&mut framebuffer, "LIMINAL MAZE", 200, 200, 6, 0xFFDD55, 0x000000);
                 
-                framebuffer.set_current_color(0xFFFFFF);
-                draw_text(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2);
-                draw_text(&mut framebuffer, "[1] Nivel 1 (Bosque)", 250, 420, 2);
-                draw_text(&mut framebuffer, "[2] Nivel 2 (Desierto/L2)", 250, 480, 2);
-                draw_text(&mut framebuffer, "[3] Nivel 3 (Nieve/L3)", 250, 540, 2);
+                draw_text_with_border(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2, 0xFFFFFF, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[1] Nivel 1 (Bosque)", 250, 420, 2, 0xFFFFFF, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[2] Nivel 2 (Desierto/L2)", 250, 480, 2, 0xFFFFFF, 0x000000);
+                draw_text_with_border(&mut framebuffer, "[3] Nivel 3 (Nieve/L3)", 250, 540, 2, 0xFFFFFF, 0x000000);
                 
                 let mut level_selected = 0;
                 if window.is_key_down(Key::Key1) { level_selected = 1; }
@@ -358,11 +383,9 @@ fn main() {
                     }
                 }
                 
-                framebuffer.set_current_color(0x00FF00);
-                draw_text(&mut framebuffer, "¡META ALCANZADA!", 150, 300, 6);
+                draw_text_with_border(&mut framebuffer, "¡META ALCANZADA!", 150, 300, 6, 0x00FF00, 0x000000);
                 
-                framebuffer.set_current_color(0xFFFFFF);
-                draw_text(&mut framebuffer, "Presiona ENTER para volver al menu", 200, 500, 2);
+                draw_text_with_border(&mut framebuffer, "Presiona ENTER para volver al menu", 200, 500, 2, 0xFFFFFF, 0x000000);
                 
                 if window.is_key_down(Key::Enter) {
                     game_state = GameState::Welcome;
@@ -371,9 +394,8 @@ fn main() {
         }
 
         // Dibujar FPS siempre encima
-        framebuffer.set_current_color(0xFFDD55); 
         let fps_text = format!("FPS: {}", fps);
-        draw_text(&mut framebuffer, &fps_text, 20, 20, 2);
+        draw_text_with_border(&mut framebuffer, &fps_text, 20, 20, 2, 0xFFDD55, 0x000000);
 
         window
             .update_with_buffer(&framebuffer.buffer, framebuffer_width, framebuffer_height)
