@@ -312,6 +312,7 @@ fn main() {
     let mut last_time = Instant::now();
     let mut fps = 0;
     
+    let mut level_start_time = Instant::now();
     let mut game_state = GameState::Welcome;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -364,6 +365,7 @@ fn main() {
                     maze = new_maze;
                     player = new_player;
                     
+                    level_start_time = Instant::now();
                     game_state = GameState::Playing;
                 }
             },
@@ -379,6 +381,10 @@ fn main() {
 
                 render(&mut framebuffer, &maze, &player, &wall_tex, &sky_tex, &floor_tex);
                 render_minimap(&mut framebuffer, &maze, &player);
+                
+                if level_start_time.elapsed().as_secs() < 2 {
+                    draw_text_with_border(&mut framebuffer, "ENCUENTRA EL ARBOL PARA SALIR", 220, 350, 3, 0xFFFFFF, 0x000000);
+                }
             },
             
             GameState::Success => {
