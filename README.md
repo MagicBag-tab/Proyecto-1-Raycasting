@@ -6,6 +6,7 @@ Un motor de Raycasting en 3D escrito en Rust desde cero para el curso de Gráfic
 <video src="./assets/demo_proyecto_1_l1.mp4" controls="controls" width="100%">
   Tu navegador no soporta el elemento de video.
 </video>
+Ver en assets
 
 ## Características Implementado
 - **Motor Base:** Renderizado de paredes en 3D a través de raymarching, movimiento con teclado, rotación de cámara con **Mouse**.
