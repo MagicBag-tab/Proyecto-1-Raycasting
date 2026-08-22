@@ -312,7 +312,8 @@ fn main() {
     let mut sky_tex = Texture::new("./assets/sky_l1.png");
     let mut wall_tex = Texture::new("./assets/wall_l1.png");
     let mut floor_tex = Texture::new("./assets/suelo_l1.png");
-    let welcome_bg = Texture::new("./assets/background_bienvenida.jpeg");
+    let welcome_bg = Texture::new("./assets/bienvenida.png");
+    let success_bg = Texture::new("./assets/felicitaciones.png");
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     framebuffer.set_background_color(0x333355);
@@ -413,9 +414,12 @@ fn main() {
             },
             
             GameState::Success => {
-                framebuffer.set_current_color(0x005500);
+                // Dibujar imagen de felicitaciones escalada a la pantalla
                 for y in 0..framebuffer.height {
                     for x in 0..framebuffer.width {
+                        let tex_x = (x as f32 / framebuffer.width as f32 * success_bg.width as f32) as u32;
+                        let tex_y = (y as f32 / framebuffer.height as f32 * success_bg.height as f32) as u32;
+                        framebuffer.set_current_color(success_bg.get_pixel(tex_x, tex_y));
                         framebuffer.point(x, y);
                     }
                 }
