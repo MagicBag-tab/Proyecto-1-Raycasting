@@ -269,12 +269,13 @@ fn main() {
     let mut sky_tex = Texture::new("./assets/sky_l1.png");
     let mut wall_tex = Texture::new("./assets/wall_l1.png");
     let mut floor_tex = Texture::new("./assets/suelo_l1.png");
+    let welcome_bg = Texture::new("./assets/background_bienvenida.jpeg");
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     framebuffer.set_background_color(0x333355);
 
     let mut window = Window::new(
-        "Maze Runner",
+        "Liminal Maze",
         window_width,
         window_height,
         WindowOptions::default(),
@@ -299,15 +300,18 @@ fn main() {
 
         match game_state {
             GameState::Welcome => {
-                framebuffer.set_current_color(0x111122);
+                // Dibujar imagen de fondo escalada a la pantalla
                 for y in 0..framebuffer.height {
                     for x in 0..framebuffer.width {
+                        let tex_x = (x as f32 / framebuffer.width as f32 * welcome_bg.width as f32) as u32;
+                        let tex_y = (y as f32 / framebuffer.height as f32 * welcome_bg.height as f32) as u32;
+                        framebuffer.set_current_color(welcome_bg.get_pixel(tex_x, tex_y));
                         framebuffer.point(x, y);
                     }
                 }
                 
                 framebuffer.set_current_color(0xFFDD55);
-                draw_text(&mut framebuffer, "MAZE RUNNER", 200, 200, 6);
+                draw_text(&mut framebuffer, "LIMINAL MAZE", 200, 200, 6);
                 
                 framebuffer.set_current_color(0xFFFFFF);
                 draw_text(&mut framebuffer, "Selecciona un Nivel para empezar:", 200, 350, 2);
