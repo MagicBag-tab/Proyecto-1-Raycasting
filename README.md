@@ -4,7 +4,8 @@ Un motor de Raycasting en 3D escrito en Rust desde cero para el curso de Gráfic
 
 ## Características Implementadas (Rúbrica de 100 puntos)
 - **Motor Base:** Renderizado de paredes en 3D a través de raymarching, movimiento con teclado, rotación de cámara con **Mouse**.
-- **Texturizado:** Carga dinámica de imágenes con texturas distintas para 3 niveles diferentes. Texturizado correcto de paredes, cielo y **Piso** (Floor casting con perspectiva 3D). Soporte de tecla **T** para alternar con colores sólidos dinámicos por nivel. La textura del bloque final ahora usa la imagen `meta.png`.
+- **Texturizado y Parallax:** Carga de imágenes con texturas distintas para 3 niveles diferentes (Atardecer, Noche, Amanecer). Texturizado correcto de paredes, cielo y **Piso** (Floor casting con perspectiva 3D). Además, se implementó un sistema de **Nubes en Parallax Horizontal** con transparencias sobrepuestas al cielo para dar profundidad infinita. Soporte de tecla **T** para alternar con colores sólidos. La textura del bloque final ahora usa la imagen `meta.png`.
+- **Sprites 3D:** Renderizado de sprites 3D tipo billboard con ordenamiento de Z-buffer para decorar el mapa, que escalan correctamente con la distancia.
 - **Minimapa y UI:** Minimapa 2D superpuesto en la esquina superior derecha y un contador de **FPS** en tiempo real. 
 - **Múltiples Niveles:** Pantalla de bienvenida interactiva donde se puede presionar 1, 2 o 3 para cargar diferentes mapas (`maze.txt`, `maze2.txt`, `maze3.txt`), alterando paletas de color y texturas.
 - **Audio de Fondo:** Reproducción de música en hilo secundario mediante el crate `rodio` (`Post-Dream.mp3`).

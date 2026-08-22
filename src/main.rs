@@ -267,6 +267,73 @@ fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, c
     }
 }
 
+pub struct CloudLayer {
+    pub texture: Texture,
+    pub parallax_factor: f32,
+    pub fade_px: f32,
+}
+
+fn cloud_layers_for_level(level: u8) -> Vec<CloudLayer> {
+    match level {
+        2 => {
+            vec![
+                CloudLayer { texture: Texture::new("./assets/claude_l2-1.png"), parallax_factor: 0.4, fade_px: 20.0 },
+            ]
+        },
+        3 => {
+            vec![
+                CloudLayer { texture: Texture::new("./assets/claude_l3_1.png"), parallax_factor: 0.2, fade_px: 12.0 },
+                CloudLayer { texture: Texture::new("./assets/claude_l3-2.png"), parallax_factor: 0.35, fade_px: 12.0 },
+                CloudLayer { texture: Texture::new("./assets/claude_l3-3.png"), parallax_factor: 0.5, fade_px: 12.0 },
+            ]
+        },
+        _ => { // Nivel 1
+            vec![
+                CloudLayer { texture: Texture::new("./assets/nube1.png"), parallax_factor: 0.3, fade_px: 12.0 },
+                CloudLayer { texture: Texture::new("./assets/nube2.png"), parallax_factor: 0.5, fade_px: 12.0 },
+            ]
+        }
+    }
+}
+
+fn render_clouds_parallax(
+    framebuffer: &mut Framebuffer,
+    player: &Player,
+    layers: &[CloudLayer],
+    i: usize,
+    start_y: usize,
+) {
+    let cloud_area_height = framebuffer.height / 2; // Dibujar hasta el horizonte
+    let limit_y = start_y.min(cloud_area_height);
+    
+    for layer in layers {
+        let scroll = (player.a * layer.parallax_factor * layer.texture.width as f32 / (2.0 * std::f32::consts::PI)) as i32;
+        let tex_x = ((i as i32 + scroll).rem_euclid(layer.texture.width as i32)) as u32;
+
+        for y in 0..limit_y {
+            let tex_y = (y as f32 / cloud_area_height as f32 * layer.texture.height as f32) as u32;
+            let color = layer.texture.get_pixel(tex_x, tex_y);
+            
+            let mut alpha = ((color >> 24) & 0xFF) as f32;
+            let r = (color >> 16) & 0xFF;
+            let g = (color >> 8) & 0xFF;
+            let b = color & 0xFF;
+            
+            let dist_top = tex_y as f32;
+            let dist_bottom = (layer.texture.height as f32 - 1.0) - tex_y as f32;
+            let edge_dist = dist_top.min(dist_bottom);
+            
+            if edge_dist < layer.fade_px {
+                alpha *= (edge_dist / layer.fade_px).clamp(0.0, 1.0);
+            }
+            
+            if alpha >= 10.0 && !(r > 240 && g < 20 && b > 240) {
+                framebuffer.point_with_color(i, y, color & 0xFFFFFF);
+            }
+        }
+    }
+}
+
 fn render(
     framebuffer: &mut Framebuffer,
     maze: &Maze,
@@ -275,6 +342,7 @@ fn render(
     sky_texture: &Texture,
     floor_texture: &Texture,
     meta_texture: &Texture,
+    cloud_layers: &[CloudLayer],
     current_level: u8,
 ) {
     let num_rays = framebuffer.width;
@@ -326,6 +394,9 @@ fn render(
                     framebuffer.set_current_color(sky_texture.get_pixel(sky_x, sky_y));
                     framebuffer.point(i, y);
                 }
+                
+                // Dibujar nubes en parallax encima del cielo (pero detrás de paredes)
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, start_y);
                 
                 let hit_x = intersect.x - (intersect.x / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
                 let hit_y = intersect.y - (intersect.y / BLOCK_SIZE as f32).floor() * BLOCK_SIZE as f32;
@@ -382,6 +453,8 @@ fn render(
                     framebuffer.point(i, y);
                 }
                 
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, start_y);
+                
                 let wall_color = cell_color(intersect.impact, current_level);
                 framebuffer.set_current_color(wall_color);
                 for y in start_y..end_y {
@@ -395,16 +468,19 @@ fn render(
             }
         } else {
             // Draw sky and floor for empty rays (no wall hit)
+            let horizon_y = framebuffer.height / 2;
             if player.use_textures {
-                for y in 0..(framebuffer.height / 2) {
+                for y in 0..horizon_y {
                     let sky_x = (i as u32) % sky_texture.width;
                     let sky_y = (y as u32) % sky_texture.height;
                     framebuffer.set_current_color(sky_texture.get_pixel(sky_x, sky_y));
                     framebuffer.point(i, y);
                 }
                 
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, horizon_y);
+                
                 let center_y = framebuffer.height as f32 / 2.0;
-                for y in (framebuffer.height / 2)..framebuffer.height {
+                for y in horizon_y..framebuffer.height {
                     let p = y as f32 - center_y;
                     if p > 0.0 {
                         let perp_dist = (BLOCK_SIZE as f32 / 2.0) * d_proj / p;
@@ -418,11 +494,14 @@ fn render(
                     framebuffer.point(i, y);
                 }
             } else {
-                for y in 0..(framebuffer.height / 2) {
+                for y in 0..horizon_y {
                     framebuffer.set_current_color(sky_color);
                     framebuffer.point(i, y);
                 }
-                for y in (framebuffer.height / 2)..framebuffer.height {
+                
+                render_clouds_parallax(framebuffer, player, cloud_layers, i, horizon_y);
+                
+                for y in horizon_y..framebuffer.height {
                     framebuffer.set_current_color(floor_color);
                     framebuffer.point(i, y);
                 }
@@ -453,8 +532,10 @@ fn main() {
     let welcome_bg = Texture::new("./assets/bienvenida.png");
     let success_bg = Texture::new("./assets/felicitaciones.png");
     let meta_tex = Texture::new("./assets/meta.png");
-    let sprite_cloud_a = Texture::new("./assets/nube1.png");
-    let sprite_cloud_b = Texture::new("./assets/nube2.png");
+    let sprite_demoplants = Texture::new("./assets/claude_l1-1.png"); // o demoplants.png si existen
+    let sprite_flowers = Texture::new("./assets/claude_l1-2.png");
+    
+    let mut cloud_layers = cloud_layers_for_level(1);
     
     // Posiciones de sprites en coordenadas de mundo. Bloque = 15 px.
     // Llenamos los espacios vacíos del laberinto para asegurar que sean visibles.
@@ -562,6 +643,7 @@ fn main() {
                     sky_tex = Texture::new(&format!("./assets/sky_l{}.png", level_selected));
                     wall_tex = Texture::new(&format!("./assets/wall_l{}.png", level_selected));
                     floor_tex = Texture::new(&format!("./assets/suelo_l{}.png", level_selected));
+                    cloud_layers = cloud_layers_for_level(level_selected);
                     
                     let maze_file = match level_selected {
                         2 => "./maze2.txt",
@@ -595,25 +677,26 @@ fn main() {
                     &sky_tex,
                     &floor_tex,
                     &meta_tex,
+                    &cloud_layers,
                     current_level,
                 );
 
-                // Sprites 3D de nubes flotando
+                // Sprites 3D de plantas/decoraciones
                 render_sprites(
                     &mut framebuffer,
                     &player,
                     &sprite_positions,
-                    &sprite_cloud_a,
-                    &sprite_cloud_b,
+                    &sprite_demoplants,
+                    &sprite_flowers,
                     anim_time,
                 );
 
                 render_minimap(&mut framebuffer, &maze, &player, current_level);
                 
                 let level_name = match current_level {
-                    2 => "Nivel 2: Desierto",
-                    3 => "Nivel 3: Nieve",
-                    _ => "Nivel 1: Bosque",
+                    2 => "Nivel 2: Noche",
+                    3 => "Nivel 3: Amanecer",
+                    _ => "Nivel 1: Atardecer",
                 };
                 draw_text_with_border(&mut framebuffer, level_name, 20, 50, 2, 0xFFDD55, 0x000000);
                 
