@@ -7,12 +7,18 @@ pub struct Player {
     pub pos: Vec2,
     pub a: f32,
     pub last_mouse_x: Option<f32>,
+    pub use_textures: bool,
 }
 
 pub fn process_events(window: &Window, player: &mut Player, maze: &Maze, block_size: usize) {
     const MOVE_SPEED: f32 = 4.0;
     const ROTATION_SPEED: f32 = PI / 40.0;
     const MOUSE_SENSITIVITY: f32 = 0.005;
+
+    // Toggle de texturas
+    if window.is_key_pressed(Key::T, minifb::KeyRepeat::No) {
+        player.use_textures = !player.use_textures;
+    }
 
     if window.is_key_down(Key::A) || window.is_key_down(Key::Left) {
         player.a -= ROTATION_SPEED;

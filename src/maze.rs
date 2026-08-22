@@ -41,6 +41,7 @@ pub fn load_maze(filename: &str, block_size: usize) -> (Maze, Player) {
         pos: player_pos.unwrap_or_else(|| Vec2::new(0.0, 0.0)),
         a: PI / 3.0,
         last_mouse_x: None,
+        use_textures: true,
     };
 
     (maze, player)
